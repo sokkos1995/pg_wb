@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  postgres:
+    container_name: postgres
+    hostname: postgres
+    image: postgres:17.1-bullseye
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: pg_db
+    volumes:
+      - ./data/:/tmp/data/      
