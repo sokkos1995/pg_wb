@@ -17,6 +17,7 @@
 \dn  -- list of schemas
 \dt  -- list of relations , Кроме простых таблиц, также существуют и [другие отношения](https://www.postgresql.org/docs/15/catalog-pg-class.html)
 \c wb -- connect to database wb
+\d+ test  -- просмотр мета информации по таблице тест
 
 -- 
 wb=#  -- база данных вб, = - ждем ввода команды (альтернатива `-` - ждет окончания ввода, `;`), # - суперпользователь 
