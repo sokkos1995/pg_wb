@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  postgres1:
+    container_name: pg1
+    hostname: postgres1
+    image: postgres:17.1-bullseye
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: pg_db
+    volumes:
+      - ./data/:/tmp/data/    
+    networks:
+      pg-replicated:
+        # ipv4_address: 172.24.0.1
+
+
+  postgres2:
+    container_name: pg2
+    hostname: postgres2
+    image: postgres:17.1-bullseye
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: pg_db
+    volumes:
+      - ./data/:/tmp/data/    
+    networks:
+      pg-replicated:
+        # ipv4_address: 172.24.0.2
+
+networks:  
+  pg-replicated:      
+    name: pg-replicated
+    # ipam:
+    #   config:
+    #     - subnet: 172.24.1.0/8  
