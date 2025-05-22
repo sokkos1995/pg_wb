@@ -428,7 +428,7 @@ window w as (partition by client)
 ```
 
 
-### Продвинутый функционал оконных функций 48 00
+### Продвинутый функционал оконных функций 43 00
 
 Что можно переписать теперь с помощью аналитических функций?
 - Нарастающий итог
@@ -471,7 +471,7 @@ WHERE StockItemID + 1 != LAST_NUM;
 
 -- выведем топ 3 заказа для каждого кастомера
 -- очень просто, но очень ДОРОГО, так как сначала мы все пронумеруем, а потом выберем только 3
--- mssql БД с кастомерами и продажами
+-- mssql БД с кастомерами и продажами (Invoices), классическая схема
 -- практику не доделал(
 SELECT *
 FROM 
@@ -485,117 +485,315 @@ WHERE CustomerTransRank <= 3
 order by CustomerID, TransactionAmount desc;
 ```
 
-## Полнотекстовый поиск 51 00
+## Полнотекстовый поиск 47 00
 
 Очень недооцененная тема. 
 
 Простой поиск
 - like - регистрозависимый поиск по шаблону, например text like ‘%tomat%ʼ
-- ilike - дороже, но регистроНЕзависимый. Работает в 5-6 раз медленнее чем like   
+- ilike - дороже, но регистроНЕзависимый. Дороже - по времени выполнения, не по ресурсам. Работает в 5-6 раз медленнее чем like   
 можно попытаться проиндексировать текстовое поле, но работать будет только если нет % в начале строки для поиска. А если нужен более сложный вариант поиска? И быстрее? Что делать в такой ситуации?
 
-Проблема в том, что ilike регистронезависимый, а мы классически не знаем, в каком регистре у нас запись. Чтобы искать быстро, можно попытаться проиндекстировать би-три, но в формате с плейсхолдером в начале он работать не будет, тк он ищет сначала.
+Проблема в том, что ilike регистронезависимый, а мы классически не знаем, в каком регистре у нас запись. Чтобы искать быстро, можно попытаться проиндекстировать би-три, но в формате с плейсхолдером в начале он работать не будет, тк он ищет сначала. Лайфхак - сделать реверс строки (но тогда важно чтобы не было плейсхолдера в конце)
 
-[Полнотекстовый поиск](https://www.postgresql.org/docs/current/textsearch.html) - позволяет нам построить наш текст в определенном векторном формате. Он создает нам дерево корней слов
+[Полнотекстовый поиск](https://www.postgresql.org/docs/current/textsearch.html) - позволяет нам построить наш текст в определенном векторном формате. Он создает нам дерево корней слов. В постгресе полнотекстовый поиск чуть чуть похуже, чем в mysql, там поиск значительно более продвинутый. У нас есть функционал из коробки, который за 2-3 команды подключит в постгрес полнотекстовый поиск и будет делать его очень быстро. Разница пг и мускул в том, что мускул еще и ищет по синонимам.
 
-Полнотекстовый поиск (или просто поиск текста) — это возможность находить
-документы на естественном языке, соответствующие запросу, и, возможно,
-дополнительно сортировать их по релевантности для этого запроса. Наиболее
-распространённая задача — найти все документы, содержащие слова запроса, и выдать
-их отсортированными по степени соответствия запросу.
-Предназначение - ранжирование слов и ускорение поиска по тексту
-Например:
+Полнотекстовый поиск (или просто поиск текста) — это возможность находить документы на естественном языке, соответствующие запросу, и, возможно, дополнительно сортировать их по релевантности для этого запроса. Наиболее распространённая задача — найти все документы, содержащие слова запроса, и выдать их отсортированными по степени соответствия запросу. Предназначение - ранжирование слов и ускорение поиска по тексту. Мы вычленяем из слова лексему, векторизуем и хороним, Например:
+```sql
 SELECT 'a fat cats sat on a mat and ate a fat rat'::tsvector @@ 'rat & cat'::tsquery
+```
+`::tsvector` - делаем из слова вектор, `'rat & cat'::tsquery` - ищем, чтобы сначала была крыса, потом кошка (формируем запрос и ищем в тексте). Используется индексный поиск. Плюс используется не классический би+ три, а используется джин индекс.
 
-Полнотекстовый поиск
-Полнотекстовая индексация заключается в предварительной обработке документов и
-сохранении индекса для последующего быстрого поиска. Предварительная обработка
-включает следующие операции:
-1. Разбор документов на фрагменты. При этом полезно выделить различные классы
-фрагментов, например, числа, слова, словосочетания, почтовые адреса и т. д.
-1. Преобразование фрагментов в лексемы. Лексема — это нормализованный фрагмент,
-в котором разные словоформы приведены к одной
-1. Хранение документов в форме, подготовленной для поиска. Например, каждый
-документ может быть представлен в виде сортированного массива
-нормализованных лексем
+Полнотекстовая индексация заключается в предварительной обработке документов и сохранении индекса для последующего быстрого поиска. Предварительная обработка включает следующие операции:
+1. Разбор документов на фрагменты. При этом полезно выделить различные классы фрагментов, например, числа, слова, словосочетания, почтовые адреса и т. д.
+2. Преобразование фрагментов в лексемы. Лексема — это нормализованный фрагмент, в котором разные словоформы приведены к одной
+3. Хранение документов в форме, подготовленной для поиска. Например, каждый документ может быть представлен в виде сортированного массива нормализованных лексем  
+Можем подключать разные языки для лексем.  
 
-Полнотекстовый поиск
-Как можем искать:
-https://www.postgresql.org/docs/current/textsearch-intro.html#TEXTSEARCH-MATCHING
-@@ - поиск совпадений
+Как можем [искать](https://www.postgresql.org/docs/current/textsearch-intro.html#TEXTSEARCH-MATCHING): можем задавать разные логические условия (например, в тексте не должно быть какого то символа, приоритет символов, последовательность и тд)
+```sql
+@@ -- поиск совпадений
 ↔ (FOLLOWED BY)
-Логические условия при поиске:
-& и
-| или
-! не
-( ) для изменения приоритета
+-- Логические условия при поиске:
+& -- и
+| -- или
+! -- не
+( ) -- для изменения приоритета
 SELECT to_tsvector('fat cats ate fat rats') @@ to_tsquery('fat & rat');
 SELECT to_tsvector('fat cats ate fat rats') @@ to_tsquery('fat ↔ rat');
 SELECT to_tsvector('fat cats ate fat rats') @@ to_tsquery('rat ↔ fat');
+```
+Полнотекст - более человекоподобен для поиска чем like/ilike
 
-Индексирование полнотекстового
-поиска
-Существует заблуждение, что нужно создать отдельно поле для хранения лексем
-для полнотекстового поиска.
-На самом деле у нас есть функциональный индекс и мы используем его:
-CREATE INDEX idx ON test USING GIN (to_tsvector('english',col2));
-И при поиске при использовании той же функции будет использован индекс!
+Индексирование полнотекстового поиска  
+Естественно, мы должны использовать индекс. ПОтому что без инджекса нам приходится каждый раз текст преобразовывать, а так в индексе уже хранится вектор.  
+Существует заблуждение, что нужно создать отдельно поле для хранения лексем для полнотекстового поиска. На самом деле у нас есть функциональный индекс и мы используем его:
+```sql
+CREATE INDEX idx ON test USING GIN (to_tsvector('english',col2));  -- создание функционального индекса - индекс от вектора по полю col2, желательно указывать кодировку
+-- И при поиске при использовании той же функции будет использован индекс!
 select * from test where to_tsvector('english',col2) @@ to_tsquery('abs');
-Важно! Функции to_tsvector('english',col2)) и to_tsvector(col2) - разные!!!
-Важно! Функция to_tsvector - это преобразование текста в формат tsvector
+-- Важно! Функции to_tsvector('english',col2)) и to_tsvector(col2) - разные!!! Постгрес увидит что количество аргументов разное и индекс не отработает. Постгрес в этом плане достаточно туп, ему без разницы что планировщик на самом деле потом подставит сюда значение. Он увидит что индекс и значение разные - и индекс использоваться не будет!
+
+-- Важно! Функция to_tsvector - это преобразование текста в формат tsvector, тип tsvector - это немного другое. to_tsvector берет и строит лексемы, по большому счету, их можно в виде текста показать. text::tsvector - он подумает что в тексте уже есть лексемы. Пример: мы говорим "погода", to_tsvector(text) будет считать что лексема "погод", а text::tsvector - считает что "погода" это уже лексема.
 text::tsvector != to_tsvector(text)
+```
 Несмотря на значение языка по умолчанию english - количество аргументов разное!!!
 
-Особенности полнотекстового поиска
-Для английских языков есть несколько словарей (синонимы, тезаурус и т.д.), можно
-с ними поэкспериментировать для более лучшего распознавания
-https://www.postgresql.org/docs/current/textsearch-dictionaries.html
-Важно для индексов - разное количество аргументов - вызываться будут разные
-функции!
-Дополнительный материал для изучения:
-http://www.sai.msu.su/~megera/postgres/talks/fts_pgsql_intro.html
-https://habr.com/ru/post/442170/
+Особенности полнотекстового поиска  
+Можно делать свои словарики синонимов (лектор говорит что ни разу не видел, чтобы кто то делал, но такой функционал доступен). Из коробки работает достаточно хорошо.  
+Для английских языков есть несколько [словарей](https://www.postgresql.org/docs/current/textsearch-dictionaries.html) (синонимы, тезаурус и т.д.), можно с ними поэкспериментировать для более лучшего распознавания
 
-Практика
+Важно для индексов - разное количество аргументов - вызываться будут разные функции! Дополнительный материал для изучения:
+- http://www.sai.msu.su/~megera/postgres/talks/fts_pgsql_intro.html
+- https://habr.com/ru/post/442170/
 
-Регулярные
-выражения
+## Практика 57 00
 
-Регулярные выражения
-Поиск по паттернам:
-PostgreSQL: Documentation: 16: 9.7. Pattern Matching
-string SIMILAR TO pattern ESCAPE escape-character]
-string NOT SIMILAR TO pattern ESCAPE escape-character]
-● | denotes alternation (either of two alternatives).
-● * denotes repetition of the previous item zero or more times.
-● + denotes repetition of the previous item one or more times.
-● ? denotes repetition of the previous item zero or one time.
-● {m} denotes repetition of the previous item exactly m times.
-● {m,} denotes repetition of the previous item m or more times.
-● {m,n} denotes repetition of the previous item at least m and not more than n times.
-● Parentheses () can be used to group items into a single logical item.
-● A bracket expression [...] specifies a character class, just as in POSIX regular expressions.
+```sql
 
-Регулярные выражения
-Регулярные выражения в POSIX стандарте:
-PostgreSQL: Documentation: 16: 9.7. Pattern Matching
+-- по полнотекстовому поиску 
+-- пример индекса и запросов
+drop table if exists test_fts;
+create table test_fts(t text, t_ts tsvector);
+INSERT INTO test_fts VALUES ('год'),('погода'),('годзилла'),('погода годная'),('худая мышь'),('худые мышки'),('худые кролики и крольчихи'),('кролик пятнистый'),('полосатые кролики');
+
+UPDATE test_fts SET t_ts = to_tsvector('russian', t);  -- создали вектор в поле t_ts
+-- это НЕправильный вариант - просто для демонстрации того, как оно хранится
+CREATE INDEX idx ON test_fts USING GIN (to_tsvector('russian',t));  -- битри индекс тут не срабоатет! точнее, сработает значительно хуже
+
+select ctid, t, t_ts from test_fts;
+/*
+  ctid  |             t             |              t_ts               
+--------+---------------------------+---------------------------------
+ (0,10) | год                       | 'год':1
+ (0,11) | погода                    | 'погод':1
+ (0,12) | годзилла                  | 'годзилл':1
+ (0,13) | погода годная             | 'годн':2 'погод':1
+ (0,14) | худая мышь                | 'мыш':2 'худ':1
+ (0,15) | худые мышки               | 'мышк':2 'худ':1
+ (0,16) | худые кролики и крольчихи | 'кролик':2 'крольчих':4 'худ':1
+ (0,17) | кролик пятнистый          | 'кролик':1 'пятнист':2
+ (0,18) | полосатые кролики         | 'кролик':2 'полосат':1
+(9 rows)
+*/
+-- в t_ts будут корни наших слов (точнее, слова без окончаний, основа слова), цифра - на каком месте в предложении находится наша лексема
+
+select (unnest(t_ts)).lexeme, count(*) from test_fts group by 1 order by 2 desc;
+/*
+  lexeme  | count 
+----------+-------
+ кролик   |     3
+ худ      |     3
+ погод    |     2
+ год      |     1
+ пятнист  |     1
+ мыш      |     1
+ годзилл  |     1
+ крольчих |     1
+ полосат  |     1
+ годн     |     1
+ мышк     |     1
+(11 rows)
+*/
+
+
+SELECT count(*)  -- 1
+FROM test_fts
+WHERE to_tsvector('russian',t) @@ to_tsquery('год');
+
+SELECT count(*)  -- 0
+FROM test_fts
+WHERE to_tsvector('russian',t) @@ to_tsquery('погода');  
+-- 0 - потому что в to_tsquery мы не указали язык!
+
+SELECT count(*)  -- 0
+FROM test_fts
+WHERE to_tsvector('russian',t) @@ to_tsquery('мышь');
+-- почему не нашли погоду и мышь?
+
+SELECT count(*)  -- 0
+FROM test_fts
+WHERE to_tsvector('russian',t) @@ 'погода'::tsquery;  -- а тут 0 потому что 'погода'::tsquery; считает что тут у нас уже готовая лексема
+
+
+
+SELECT count(*)  -- 2
+FROM test_fts
+WHERE to_tsvector('russian',t) @@ to_tsquery('russian','погода');
+
+SELECT count(*)  -- 1
+FROM test_fts
+WHERE to_tsvector('russian',t) @@ to_tsquery('russian','мышь');
+
+-- поиск по неполному совпадению - найдем все, что навинается с год
+SELECT count(*)  -- 3
+FROM test_fts
+WHERE to_tsvector('russian',t) @@ to_tsquery('russian','год:*');
+
+
+-- посмотрим план и видим, что индекс не используется
+EXPLAIN
+SELECT count(*)
+FROM test_fts
+WHERE to_tsvector('russian',t) @@ to_tsquery('год');
+/*
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
+ Aggregate  (cost=5.62..5.63 rows=1 width=8)
+   ->  Seq Scan on test_fts  (cost=0.00..5.61 rows=1 width=0)
+         Filter: (to_tsvector('russian'::regconfig, t) @@ to_tsquery('год'::text))
+*/
+-- так как у нас не совпадает количество аргументов, несмотря на то, что можем задать по умолчанию язык
+-- https://www.db-fiddle.com/f/gW1N26Cht89J5ZezCff4dL/2
+
+-- данных слишком мало таки
+EXPLAIN
+SELECT count(*)
+FROM test_fts
+WHERE to_tsvector('russian',t) @@ to_tsquery('russian', 'год');
+/*
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Aggregate  (cost=3.37..3.38 rows=1 width=8)
+   ->  Seq Scan on test_fts  (cost=0.00..3.36 rows=1 width=0)
+         Filter: (to_tsvector('russian'::regconfig, t) @@ '''год'''::tsquery)
+(3 rows)
+*/
+
+-- установим огромную стоимость секскан
+SET enable_seqscan = OFF;
+EXPLAIN
+SELECT count(*)
+FROM test_fts
+WHERE to_tsvector('russian',t) @@ to_tsquery('russian', 'год');
+/*
+                                       QUERY PLAN                                       
+----------------------------------------------------------------------------------------
+ Aggregate  (cost=12.79..12.80 rows=1 width=8)
+   ->  Bitmap Heap Scan on test_fts  (cost=8.52..12.79 rows=1 width=0)
+         Recheck Cond: (to_tsvector('russian'::regconfig, t) @@ '''год'''::tsquery)
+         ->  Bitmap Index Scan on idx  (cost=0.00..8.52 rows=1 width=0)
+               Index Cond: (to_tsvector('russian'::regconfig, t) @@ '''год'''::tsquery)
+(5 rows)
+*/
+-- видим, что индекс используется, хотя сложность повыше
+
+-- посмотрим из другого сеанса
+-- и видим, что снова seqscan
+-- https://www.postgresql.org/docs/current/sql-set.html
+
+
+-- bookings
+\c demo
+\timing
+SELECT * 
+FROM bookings.tickets
+WHERE to_tsvector(passenger_name) @@ to_tsquery('ivan');
+
+
+-- посмотрим 2 варианта - или добавим поле и по нему индекс или сделаем функциональный индекс
+SELECT count(*)  -- 4542
+FROM bookings.tickets
+WHERE to_tsvector(passenger_name) @@ to_tsquery('ivan');
+
+CREATE INDEX pgweb_idx2 ON bookings.tickets USING GIN (to_tsvector('english',passenger_name));
+
+SELECT count(*)
+FROM bookings.tickets
+WHERE to_tsvector('english',passenger_name) @@ to_tsquery('ivan');
+
+EXPLAIN SELECT count(*)
+FROM bookings.tickets
+WHERE to_tsvector(passenger_name) @@ to_tsquery('ivan');
+
+
+drop INDEX if exists pgweb_idx3;
+-- разный регистр для лайка
+SELECT count(*)
+FROM bookings.tickets
+WHERE passenger_name like '%ivan%';
+
+SELECT count(*)
+FROM bookings.tickets
+WHERE passenger_name like 'IVAN%';
+
+-- ilike - регистронезависимый поиск
+SELECT count(*)
+FROM bookings.tickets
+WHERE passenger_name ilike '%ivan%';
+-- в 45 раз медленнее, ченм полнотекстом
+
+SELECT count(*)
+FROM bookings.tickets
+WHERE passenger_name ilike 'ivan%';
+
+SELECT count(*)
+FROM bookings.tickets
+WHERE lower(passenger_name) like 'ivan%';
+
+
+CREATE INDEX pgweb_idx3 ON bookings.tickets(passenger_name);
+
+SELECT *
+FROM bookings.tickets
+WHERE passenger_name like 'ivan%';
+
+
+SELECT count(*)
+FROM bookings.tickets
+WHERE passenger_name ilike '%ivan%';
+
+explain SELECT count(*)
+FROM bookings.tickets
+WHERE passenger_name ilike '%ivan%';
+
+
+-- Бонус - больше 100 скриптов на все случаи жизни
+-- https://github.com/rin-nas/postgresql-patterns-library 
+```
+ilike
+- очень похож на полнотекст
+- в сотни раз медленнее
+- еще и выдает левые результаты
+
+## Регулярные выражения
+
+Кроме того что у нас есть лайк/айлайк, у нас еще есть регулярки. здесь есть 2 варианта - или поиск по паттерну (SIMILAR) (редко используется, тк есть поиск по posix)
+
+Поиск по паттернам: [PostgreSQL: Documentation: 16: 9.7. Pattern Matching](https://www.postgresql.org/docs/current/functions-matching.html#FUNCTIONS-SIMILARTO-REGEXP)
+```sql
+string SIMILAR TO pattern [ESCAPE escape-character]
+string NOT SIMILAR TO pattern [ESCAPE escape-character]
+```
+- | denotes alternation (either of two alternatives).
+- * denotes repetition of the previous item zero or more times.
+- + denotes repetition of the previous item one or more times.
+- ? denotes repetition of the previous item zero or one time.
+- {m} denotes repetition of the previous item exactly m times.
+- {m,} denotes repetition of the previous item m or more times.
+- {m,n} denotes repetition of the previous item at least m and not more than n times.
+- Parentheses () can be used to group items into a single logical item.
+- A bracket expression [...] specifies a character class, just as in POSIX regular expressions.
+
+
+Регулярные выражения в POSIX стандарте: [PostgreSQL: Documentation: 16: 9.7. Pattern Matching](https://www.postgresql.org/docs/current/functions-matching.html#FUNCTIONS-POSIX-REGEXP)  
 Some examples:
+```sql
 'abcd' ~ 'bc' true
 'abcd' ~ 'a.c' true — dot matches any character
 'abcd' ~ 'a.*d' true — * repeats the preceding pattern item
 'abcd' ~ '(b|x)' true — | means OR, parentheses group
 'abcd' ~ '^a' true — ^ anchors to start of string
 'abcd' ~ '^(b|c)' false — would match except for anchoring
+```
 https://en.wikibooks.org/wiki/Regular_Expressions/POSIX_Basic_Regular_Expressions
 
-Триграммы
+## Триграммы
 
-Триграммы
-Есть кейсы, когда нам нужен нечеткий поиск и желательно индексный.
-Используем расширение pg_trgm и индекс
-https://habr.com/ru/articles/341142/
+Есть кейсы, когда нам нужен нечеткий поиск и желательно индексный. Используем [расширение](https://habr.com/ru/articles/341142/) pg_trgm и индекс
 
-ДЗ №9
+## ДЗ №11 1 16 00
+
 Проанализировать данные о зарплатах сотрудников с использованием оконных функций.
-а) На сколько было увеличение с предыдущей зарплатой
-б) если это первая зарплата - вместо NULL вывести 0
+- На сколько было увеличение с предыдущей зарплатой
+- если это первая зарплата - вместо NULL вывести 0
